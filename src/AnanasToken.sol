@@ -2,13 +2,14 @@
 pragma solidity ^0.8.13;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {VRFConsumerBaseV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
 import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 
-import {LinkTokenInterface} from "@chainlink/src/v0.8/shared/interfaces/LinkTokenInterface.sol";
-import {IVRFCoordinatorV2Plus} from "@chainlink/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.sol";
-import {VRFConsumerBaseV2Plus} from "@chainlink/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
-import {VRFV2PlusClient} from "@chainlink/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
+import {LinkTokenInterface} from "@chainlink/contracts/src/v0.8/shared/interfaces/LinkTokenInterface.sol";
+import {IVRFCoordinatorV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.sol";
+import {VRFConsumerBaseV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
+import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 
 contract VRFv2PlusSubscriptionManager is VRFConsumerBaseV2Plus {
     LinkTokenInterface LINKTOKEN;
@@ -116,9 +117,7 @@ contract VRFv2PlusSubscriptionManager is VRFConsumerBaseV2Plus {
     }
 }
 
-contract AnanasToken is ERC20, VRFConsumerBaseV2Plus {
-    address public owner;
-
+contract AnanasTokenCasino is VRFConsumerBaseV2Plus {
     // VRF related stuff
     address public vrfCoordinator = 0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B;
     bytes32 public s_keyHash = 0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae; // 500 gwei lane
@@ -127,7 +126,62 @@ contract AnanasToken is ERC20, VRFConsumerBaseV2Plus {
     uint32 public numWords = 1;
     uint256 public s_subscriptionId;
 
-    address public subscription_manager;
+    VRFv2PlusSubscriptionManager public subscription_manager;
+    AnanasToken public ananasToken;
+
+    mapping(address => int8) public rollStatuses;
+    mapping(uint256 => address) public requestIdToRoller;
+    mapping(uint256 => bool) public rollResults;
+
+    event LudkaStart(uint256 indexed requestId, address indexed roller);
+    event LudkaFabulousEnd(uint256 indexed requestId, bool indexed result);
+
+    constructor(address _ananasToken) VRFConsumerBaseV2Plus(vrfCoordinator) {
+        // Add initial tasks
+        subscription_manager = new VRFv2PlusSubscriptionManager();
+        subscription_manager.addConsumer(address(this));
+
+        s_subscriptionId = subscription_manager.s_subscriptionId();
+
+        ananasToken = AnanasToken(_ananasToken);
+    }
+
+    function Ludka(address roller) external onlyOwner {
+        require(rollStatuses[roller] == 0, "Another roll is in progress");
+        // Will revert if subscription is not set and funded.
+
+        uint256 requestId = s_vrfCoordinator.requestRandomWords(
+            VRFV2PlusClient.RandomWordsRequest({
+                keyHash: s_keyHash,
+                subId: s_subscriptionId,
+                requestConfirmations: requestConfirmations,
+                callbackGasLimit: callbackGasLimit,
+                numWords: numWords,
+                // Set nativePayment to true to pay for VRF requests with Sepolia ETH instead of LINK
+                extraArgs: VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({nativePayment: false}))
+            })
+        );
+
+        requestIdToRoller[requestId] = roller;
+        rollStatuses[roller] = 1;
+        emit LudkaStart(requestId, roller);
+    }
+
+    function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal override {
+        bool win = randomWords[0] > 127;
+
+        rollResults[requestId] = win;
+        rollStatuses[requestIdToRoller[requestId]] = 0;
+
+        ananasToken.mintTokens(requestIdToRoller[requestId], 20);
+
+        emit LudkaFabulousEnd(requestId, win);
+    }
+}
+
+contract AnanasToken is ERC20 {
+    address public owner;
+    AnanasTokenCasino private casino;
 
     struct AnanasPurchase {
         address buyer;
@@ -193,25 +247,18 @@ contract AnanasToken is ERC20, VRFConsumerBaseV2Plus {
     event PollVote(address user, uint256 option);
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner can perform this action");
+        require(msg.sender == owner || msg.sender == address(casino), "Only owner can perform this action");
         _;
     }
 
-    constructor(Task[] memory initialTasks, uint256 subscriptionId) ERC20("Ananas Token", "ANNS"), VRFConsumerBaseV2Plus() {
+    constructor(Task[] memory initialTasks) ERC20("Ananas Token", "ANNS") {
         owner = msg.sender;
 
         // Add initial tasks
         for (uint256 i = 0; i < initialTasks.length; i++) {
             tasks.push(initialTasks[i]);
         }
-
-        subscription_manager = new VRFv2PlusSubscriptionManager();
-
-        s_subscriptionId = subscriptionId;
-    }
-
-    function acquireRandom() private {
-
+        casino = new AnanasTokenCasino(address(this));
     }
 
     // Owner can transfer some tokens to the student (for some kind of activity)
@@ -225,11 +272,11 @@ contract AnanasToken is ERC20, VRFConsumerBaseV2Plus {
     }
 
     // Casino roll function (user always loses)
-    function rollCasino() external returns (string memory) {
+    function rollCasino() external {
         require(balanceOf(msg.sender) - reservedTokens[msg.sender] >= 10, "Insufficient tokens to roll casino");
 
         _burn(msg.sender, 10); // Deduct 1000 tokens
-        return "You rolled... and lost! Better luck next time!";
+        casino.Ludka(msg.sender);
     }
 
     // Function to exchange 1000 ananas tokens for real life ananas
@@ -369,7 +416,7 @@ contract AnanasToken is ERC20, VRFConsumerBaseV2Plus {
 
         uint256 p_id = pollIndex[id];
         pollStatus[id] = Status.Closed;
-        
+
         uint256 maxVotes = 0;
         uint256 winner = 0;
         for (uint256 i = 0; i < polls[p_id].votes.length; i++) {

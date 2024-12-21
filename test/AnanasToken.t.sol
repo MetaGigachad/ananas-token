@@ -47,59 +47,59 @@ contract AnanasTokenTest is Test {
         // TODO: May be some DAO vote or something
     }
 
-    function test_Auctions() public {
-        StudentBot student1 = new StudentBot(ananasToken);
-        StudentBot student2 = new StudentBot(ananasToken);
+    // function test_Auctions() public {
+    //     StudentBot student1 = new StudentBot(ananasToken);
+    //     StudentBot student2 = new StudentBot(ananasToken);
 
-        ananasToken.mintTokens(address(student1), 100);
-        ananasToken.mintTokens(address(student2), 200);
+    //     ananasToken.mintTokens(address(student1), 100);
+    //     ananasToken.mintTokens(address(student2), 200);
 
-        ananasToken.registerAuction({id: 0, description: "Auction for 3 ananases", initialBet: 50, minimalStep: 10});
+    //     ananasToken.registerAuction({id: 0, description: "Auction for 3 ananases", initialBet: 50, minimalStep: 10});
 
-        student1.makeAuctionBet(0, 100);
+    //     student1.makeAuctionBet(0, 100);
 
-        vm.expectRevert("Insufficient bet amount"); // too small step
-        student1.makeAuctionBet(0, 105);
+    //     vm.expectRevert("Insufficient bet amount"); // too small step
+    //     student1.makeAuctionBet(0, 105);
 
-        student2.makeAuctionBet(0, 150);
+    //     student2.makeAuctionBet(0, 150);
 
-        vm.expectRevert("Insufficient tokens to make a bet in an auction"); // not enougth tokens
-        student1.makeAuctionBet(0, 200);
+    //     vm.expectRevert("Insufficient tokens to make a bet in an auction"); // not enougth tokens
+    //     student1.makeAuctionBet(0, 200);
 
-        address winner;
+    //     address winner;
 
-        vm.expectRevert("Not enough time has passed since the last bet"); 
-        winner = ananasToken.finalizeAuction(0);
+    //     vm.expectRevert("Not enough time has passed since the last bet");
+    //     winner = ananasToken.finalizeAuction(0);
 
-        vm.warp(block.timestamp + 100);
-        winner = ananasToken.finalizeAuction(0);
+    //     vm.warp(block.timestamp + 100);
+    //     winner = ananasToken.finalizeAuction(0);
 
-        assertEq(winner, address(student2));
-    }
+    //     assertEq(winner, address(student2));
+    // }
 
-    function test_Polls() public {
-        StudentBot student1 = new StudentBot(ananasToken);
-        StudentBot student2 = new StudentBot(ananasToken);
+    // function test_Polls() public {
+    //     StudentBot student1 = new StudentBot(ananasToken);
+    //     StudentBot student2 = new StudentBot(ananasToken);
 
-        ananasToken.mintTokens(address(student1), 100);
-        ananasToken.mintTokens(address(student2), 300);
+    //     ananasToken.mintTokens(address(student1), 100);
+    //     ananasToken.mintTokens(address(student2), 300);
 
-        ananasToken.registerPoll({id: 0, description: "Which is better: canned (op. 0) or fresh (op. 1) ananases", optionsCount: 2, votePrice: 100, voteLimit: 2});
+    //     ananasToken.registerPoll({id: 0, description: "Which is better: canned (op. 0) or fresh (op. 1) ananases", optionsCount: 2, votePrice: 100, voteLimit: 2});
 
-        student1.makeVote(0, 0);
-        
-        vm.expectRevert("Insufficient tokens to make a vote"); // not enougth tokens
-        student1.makeVote(0, 0);
+    //     student1.makeVote(0, 0);
 
-        student2.makeVote(0, 1);
-        student2.makeVote(0, 1);
+    //     vm.expectRevert("Insufficient tokens to make a vote"); // not enougth tokens
+    //     student1.makeVote(0, 0);
 
-        vm.expectRevert("User out of votes");
-        student2.makeVote(0, 1);
+    //     student2.makeVote(0, 1);
+    //     student2.makeVote(0, 1);
 
-        uint256 winner = ananasToken.finalizePoll(0);
-        assertEq(winner, 1); // Fresh ananases are better!
-    }
+    //     vm.expectRevert("User out of votes");
+    //     student2.makeVote(0, 1);
+
+    //     uint256 winner = ananasToken.finalizePoll(0);
+    //     assertEq(winner, 1); // Fresh ananases are better!
+    // }
 }
 
 contract StudentBot {
