@@ -25,14 +25,6 @@ contract AnanasTokenTest is Test {
         ananasToken.markTaskAsCompleted(address(student), 2);
         assertEq(ananasToken.balanceOf(address(student)), 3000);
 
-        // Student can roll casino for 10 ananases (currently just looses them)
-        student.rollCasino();
-        mock.deliverRandom(address(ananasToken.casino()), 1, 1);
-        assertEq(ananasToken.balanceOf(address(student)), 3010);
-        student.rollCasino();
-        mock.deliverRandom(address(ananasToken.casino()), 1, 0);
-        assertEq(ananasToken.balanceOf(address(student)), 3000);
-
         // Student can buy real ananas for 1000 anans tokens
         student.buyAnanas();
         AnanasToken.AnanasUnfulfilledPurchase[] memory unfullfilled = ananasToken.getUnfulfilledAnanas();
@@ -49,6 +41,18 @@ contract AnanasTokenTest is Test {
         ananasToken.markTaskAsCompleted(address(student2), 2);
         student2.transfer(address(student3), 2000);
         assertEq(ananasToken.balanceOf(address(student3)), 2000);
+    }
+
+    function test_Casino() public {
+        StudentBot student = new StudentBot(ananasToken);
+        ananasToken.markTaskAsCompleted(address(student), 2);
+
+        student.rollCasino();
+        mock.deliverRandom(address(ananasToken.casino()), 1, 1);
+        assertEq(ananasToken.balanceOf(address(student)), 3010);
+        student.rollCasino();
+        mock.deliverRandom(address(ananasToken.casino()), 1, 0);
+        assertEq(ananasToken.balanceOf(address(student)), 3000);
     }
 
     function test_Auctions() public {
@@ -140,12 +144,12 @@ contract VrfCoordinatorMock {
     constructor() {
     }
 
-    function requestRandomWords(VRFV2PlusClient.RandomWordsRequest calldata req) external returns (uint256 requestId) {
+    function requestRandomWords(VRFV2PlusClient.RandomWordsRequest calldata /*req*/) external returns (uint256 requestId) {
         request_id += 1;
         return request_id;
     }
 
-    function createSubscription() public returns (uint256) {
+    function createSubscription() public pure returns (uint256) {
         return 0;
     }
 
