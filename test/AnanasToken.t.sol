@@ -76,6 +76,30 @@ contract AnanasTokenTest is Test {
 
         assertEq(winner, address(student2));
     }
+
+    function test_Polls() public {
+        StudentBot student1 = new StudentBot(ananasToken);
+        StudentBot student2 = new StudentBot(ananasToken);
+
+        ananasToken.mintTokens(address(student1), 100);
+        ananasToken.mintTokens(address(student2), 300);
+
+        ananasToken.registerPoll({id: 0, description: "Which is better: canned (op. 0) or fresh (op. 1) ananases", optionsCount: 2, votePrice: 100, voteLimit: 2});
+
+        student1.makeVote(0, 0);
+        
+        vm.expectRevert("Insufficient tokens to make a vote"); // not enougth tokens
+        student1.makeVote(0, 0);
+
+        student2.makeVote(0, 1);
+        student2.makeVote(0, 1);
+
+        vm.expectRevert("User out of votes");
+        student2.makeVote(0, 1);
+
+        uint256 winner = ananasToken.finalizePoll(0);
+        assertEq(winner, 1); // Fresh ananases are better!
+    }
 }
 
 contract StudentBot {
@@ -101,5 +125,7 @@ contract StudentBot {
         ananasToken.makeAuctionBet(id, bet);
     }
 
-
+    function makeVote(uint256 id, uint256 option) external {
+        ananasToken.makeVote(id, option);
+    }
 }

@@ -45,13 +45,29 @@ contract AnanasToken is ERC20 {
 
     uint256 public constant BET_TIMER = 1 minutes;
 
-    mapping (uint256 => Auction) public auctions;
-    mapping (uint256 => Status) public auctionStatus;
+    mapping(uint256 => Auction) public auctions;
+    mapping(uint256 => Status) public auctionStatus;
 
-    mapping (address => uint256) public reservedTokens; // Tokens on hold while leading the auction
+    mapping(address => uint256) public reservedTokens; // Tokens on hold while leading the auction
 
     event AuctionBet(address user, uint256 auctionId, uint256 bet);
     event AuctionClosed(uint256 auctionId);
+
+    // Polls-related mappings and structs
+    struct Poll {
+        uint256 id;
+        string description;
+        uint256 votePrice; // price in tokens for one vote
+        uint256 voteLimit; // how many times can user vote in the poll
+        uint256[] votes;
+    }
+
+    mapping(uint256 => uint256) public pollIndex;
+    Poll[] public polls;
+    mapping(uint256 => Status) public pollStatus;
+    mapping(uint256 => mapping(address => uint256)) public userVotesCount;
+
+    event PollVote(address user, uint256 option);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner can perform this action");
@@ -189,5 +205,49 @@ contract AnanasToken is ERC20 {
         }
 
         emit AuctionClosed(id);
+    }
+
+    // Owner can register new poll
+    function registerPoll(uint256 id, string memory description, uint256 optionsCount, uint256 votePrice, uint256 voteLimit) external onlyOwner {
+        require (pollStatus[id] == Status.Disabled, "Incorrect transmitted ID");
+
+        pollIndex[id] = polls.length;
+        polls.push(Poll(id, description, votePrice, voteLimit, new uint256[](optionsCount)));
+        pollStatus[id] = Status.Active;
+    }
+
+    // Users can vote for an option in poll
+    function makeVote(uint256 id, uint256 option) external {
+        require(pollStatus[id] == Status.Active, "Incorrect poll ID");
+
+        uint256 p_id = pollIndex[id];
+        require(balanceOf(msg.sender) - reservedTokens[msg.sender] >= polls[p_id].votePrice, "Insufficient tokens to make a vote");
+        require(userVotesCount[id][msg.sender] < polls[p_id].voteLimit, "User out of votes");
+        require(option < polls[p_id].votes.length, "Bad option");
+
+        polls[p_id].votes[option] += 1;
+        _burn(msg.sender, polls[p_id].votePrice);
+        userVotesCount[id][msg.sender] += 1;
+
+        emit PollVote(msg.sender, option);
+    }
+
+    // Owner can finish the poll and get winner
+    function finalizePoll(uint256 id) external onlyOwner returns (uint256) {
+        require(pollStatus[id] == Status.Active, "Incorrect poll ID");
+
+        uint256 p_id = pollIndex[id];
+        pollStatus[id] = Status.Closed;
+        
+        uint256 maxVotes = 0;
+        uint256 winner = 0;
+        for (uint256 i = 0; i < polls[p_id].votes.length; i++) {
+            if (polls[p_id].votes[i] > maxVotes) {
+                winner = i;
+                maxVotes = polls[p_id].votes[i];
+            }
+        }
+
+        return winner;
     }
 }
