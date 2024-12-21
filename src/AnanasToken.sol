@@ -11,77 +11,59 @@ import {IVRFCoordinatorV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/inter
 import {VRFConsumerBaseV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
 import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 
-contract VRFv2PlusSubscriptionManager is VRFConsumerBaseV2Plus {
+contract AnanasTokenCasino is VRFConsumerBaseV2Plus {
     LinkTokenInterface LINKTOKEN;
-
-    // Sepolia coordinator. For other networks,
-    // see https://docs.chain.link/docs/vrf/v2-5/subscription-supported-networks#configurations
-    address public vrfCoordinatorV2Plus =
-        0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B;
-
-    // Sepolia LINK token contract. For other networks, see
-    // https://docs.chain.link/docs/vrf-contracts/#configurations
-    address public link_token_contract =
-        0x779877A7B0D9E8603169DdbD7836e478b4624789;
-
-    // The gas lane to use, which specifies the maximum gas price to bump to.
-    // For a list of available gas lanes on each network,
-    // see https://docs.chain.link/docs/vrf/v2-5/subscription-supported-networks#configurations
-    bytes32 public keyHash =
-        0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae;
-
-    // A reasonable default is 100000, but this value could be different
-    // on other networks.
+    address public link_token_contract = 0x779877A7B0D9E8603169DdbD7836e478b4624789;
+    address public vrfCoordinator = 0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B;
+    bytes32 public s_keyHash = 0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae; // 500 gwei lane
     uint32 public callbackGasLimit = 100000;
-
-    // The default is 3, but you can set this higher.
     uint16 public requestConfirmations = 3;
-
-    // For this example, retrieve 2 random values in one request.
-    // Cannot exceed VRFCoordinatorV2.MAX_NUM_WORDS.
-    uint32 public numWords = 2;
-
-    // Storage parameters
-    uint256[] public s_randomWords;
-    uint256 public s_requestId;
+    uint32 public numWords = 1;
     uint256 public s_subscriptionId;
 
-    constructor() VRFConsumerBaseV2Plus(vrfCoordinatorV2Plus) {
-        s_vrfCoordinator = IVRFCoordinatorV2Plus(vrfCoordinatorV2Plus);
+    AnanasToken public ananasToken;
+
+    mapping(address => int8) public rollStatuses;
+    mapping(uint256 => address) public requestIdToRoller;
+    mapping(uint256 => bool) public rollResults;
+
+    event LudkaStart(uint256 indexed requestId, address indexed roller);
+    event LudkaFabulousEnd(uint256 indexed requestId, bool indexed result);
+
+    constructor(address _ananasToken) VRFConsumerBaseV2Plus(vrfCoordinator) {
         LINKTOKEN = LinkTokenInterface(link_token_contract);
-        //Create a new subscription when you deploy the contract.
         _createNewSubscription();
+        ananasToken = AnanasToken(_ananasToken);
     }
 
-    // Assumes the subscription is funded sufficiently.
-    function requestRandomWords() external onlyOwner {
-        // Will revert if subscription is not set and funded.
-        s_requestId = s_vrfCoordinator.requestRandomWords(
+    function Ludka(address roller) external onlyOwner {
+        require(rollStatuses[roller] == 0, "Another roll is in progress");
+
+        uint256 requestId = s_vrfCoordinator.requestRandomWords(
             VRFV2PlusClient.RandomWordsRequest({
-                keyHash: keyHash,
+                keyHash: s_keyHash,
                 subId: s_subscriptionId,
                 requestConfirmations: requestConfirmations,
                 callbackGasLimit: callbackGasLimit,
                 numWords: numWords,
-                extraArgs: VRFV2PlusClient._argsToBytes(
-                    VRFV2PlusClient.ExtraArgsV1({nativePayment: false})
-                )
+                extraArgs: VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({nativePayment: false}))
             })
         );
+
+        requestIdToRoller[requestId] = roller;
+        rollStatuses[roller] = 1;
+        emit LudkaStart(requestId, roller);
     }
 
-    function fulfillRandomWords(
-        uint256 /* requestId */,
-        uint256[] calldata randomWords
-    ) internal override {
-        s_randomWords = randomWords;
-    }
+    function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal override {
+        bool win = (randomWords[0] & 1) == 1;
 
-    // Create a new subscription when the contract is initially deployed.
-    function _createNewSubscription() private onlyOwner {
-        s_subscriptionId = s_vrfCoordinator.createSubscription();
-        // Add this contract as a consumer of its own subscription.
-        s_vrfCoordinator.addConsumer(s_subscriptionId, address(this));
+        rollResults[requestId] = win;
+        rollStatuses[requestIdToRoller[requestId]] = 0;
+
+        ananasToken.mintTokens(requestIdToRoller[requestId], 20);
+
+        emit LudkaFabulousEnd(requestId, win);
     }
 
     // Assumes this contract owns link.
@@ -94,88 +76,9 @@ contract VRFv2PlusSubscriptionManager is VRFConsumerBaseV2Plus {
         );
     }
 
-    function addConsumer(address consumerAddress) external onlyOwner {
-        // Add a consumer contract to the subscription.
-        s_vrfCoordinator.addConsumer(s_subscriptionId, consumerAddress);
-    }
-
-    function removeConsumer(address consumerAddress) external onlyOwner {
-        // Remove a consumer contract from the subscription.
-        s_vrfCoordinator.removeConsumer(s_subscriptionId, consumerAddress);
-    }
-
-    function cancelSubscription(address receivingWallet) external onlyOwner {
-        // Cancel the subscription and send the remaining LINK to a wallet address.
-        s_vrfCoordinator.cancelSubscription(s_subscriptionId, receivingWallet);
-        s_subscriptionId = 0;
-    }
-
-    // Transfer this contract's funds to an address.
-    // 1000000000000000000 = 1 LINK
-    function withdraw(uint256 amount, address to) external onlyOwner {
-        LINKTOKEN.transfer(to, amount);
-    }
-}
-
-contract AnanasTokenCasino is VRFConsumerBaseV2Plus {
-    // VRF related stuff
-    address public vrfCoordinator = 0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B;
-    bytes32 public s_keyHash = 0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae; // 500 gwei lane
-    uint32 public callbackGasLimit = 40000;
-    uint16 public requestConfirmations = 3;
-    uint32 public numWords = 1;
-    uint256 public s_subscriptionId;
-
-    VRFv2PlusSubscriptionManager public subscription_manager;
-    AnanasToken public ananasToken;
-
-    mapping(address => int8) public rollStatuses;
-    mapping(uint256 => address) public requestIdToRoller;
-    mapping(uint256 => bool) public rollResults;
-
-    event LudkaStart(uint256 indexed requestId, address indexed roller);
-    event LudkaFabulousEnd(uint256 indexed requestId, bool indexed result);
-
-    constructor(address _ananasToken) VRFConsumerBaseV2Plus(vrfCoordinator) {
-        // Add initial tasks
-        subscription_manager = new VRFv2PlusSubscriptionManager();
-        subscription_manager.addConsumer(address(this));
-
-        s_subscriptionId = subscription_manager.s_subscriptionId();
-
-        ananasToken = AnanasToken(_ananasToken);
-    }
-
-    function Ludka(address roller) external onlyOwner {
-        require(rollStatuses[roller] == 0, "Another roll is in progress");
-        // Will revert if subscription is not set and funded.
-
-        uint256 requestId = s_vrfCoordinator.requestRandomWords(
-            VRFV2PlusClient.RandomWordsRequest({
-                keyHash: s_keyHash,
-                subId: s_subscriptionId,
-                requestConfirmations: requestConfirmations,
-                callbackGasLimit: callbackGasLimit,
-                numWords: numWords,
-                // Set nativePayment to true to pay for VRF requests with Sepolia ETH instead of LINK
-                extraArgs: VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({nativePayment: false}))
-            })
-        );
-
-        requestIdToRoller[requestId] = roller;
-        rollStatuses[roller] = 1;
-        emit LudkaStart(requestId, roller);
-    }
-
-    function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal override {
-        bool win = randomWords[0] > 127;
-
-        rollResults[requestId] = win;
-        rollStatuses[requestIdToRoller[requestId]] = 0;
-
-        ananasToken.mintTokens(requestIdToRoller[requestId], 20);
-
-        emit LudkaFabulousEnd(requestId, win);
+    function _createNewSubscription() private onlyOwner {
+        s_subscriptionId = s_vrfCoordinator.createSubscription();
+        s_vrfCoordinator.addConsumer(s_subscriptionId, address(this));
     }
 }
 
