@@ -46,6 +46,36 @@ contract AnanasTokenTest is Test {
 
         // TODO: May be some DAO vote or something
     }
+
+    function test_Auctions() public {
+        StudentBot student1 = new StudentBot(ananasToken);
+        StudentBot student2 = new StudentBot(ananasToken);
+
+        ananasToken.mintTokens(address(student1), 100);
+        ananasToken.mintTokens(address(student2), 200);
+
+        ananasToken.registerAuction({id: 0, description: "Auction for 3 ananases", initialBet: 50, minimalStep: 10});
+
+        student1.makeAuctionBet(0, 100);
+
+        vm.expectRevert("Insufficient bet amount"); // too small step
+        student1.makeAuctionBet(0, 105);
+
+        student2.makeAuctionBet(0, 150);
+
+        vm.expectRevert("Insufficient tokens to make a bet in an auction"); // not enougth tokens
+        student1.makeAuctionBet(0, 200);
+
+        address winner;
+
+        vm.expectRevert("Not enough time has passed since the last bet"); 
+        winner = ananasToken.finalizeAuction(0);
+
+        vm.warp(block.timestamp + 100);
+        winner = ananasToken.finalizeAuction(0);
+
+        assertEq(winner, address(student2));
+    }
 }
 
 contract StudentBot {
@@ -66,4 +96,10 @@ contract StudentBot {
     function transfer(address to, uint256 amount) external {
         ananasToken.transfer(to, amount);
     }
+
+    function makeAuctionBet(uint256 id, uint256 bet) external {
+        ananasToken.makeAuctionBet(id, bet);
+    }
+
+
 }

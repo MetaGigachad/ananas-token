@@ -28,6 +28,31 @@ contract AnanasToken is ERC20 {
     event AnanasFulfilled(address indexed user);
     event TaskCompleted(address indexed user, uint256 taskId, uint256 reward);
 
+    // Auction-related mappings and structs
+    struct Auction {
+        string description;
+        uint256 minimalStep;
+        uint256 lastBet;
+        address currentWinner;
+        uint256 lastTimestamp;
+    }
+
+    enum Status {
+        Disabled,
+        Active,
+        Closed
+    }
+
+    uint256 public constant BET_TIMER = 1 minutes;
+
+    mapping (uint256 => Auction) public auctions;
+    mapping (uint256 => Status) public auctionStatus;
+
+    mapping (address => uint256) public reservedTokens; // Tokens on hold while leading the auction
+
+    event AuctionBet(address user, uint256 auctionId, uint256 bet);
+    event AuctionClosed(uint256 auctionId);
+
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner can perform this action");
         _;
@@ -42,9 +67,19 @@ contract AnanasToken is ERC20 {
         }
     }
 
+    // Owner can transfer some tokens to the student (for some kind of activity)
+    function mintTokens(address user, uint256 amount) external onlyOwner {
+        _mint(user, amount);
+    }
+
+    // Similarly, tokens can be withdrawn
+    function burnTokens(address user, uint256 amount) external onlyOwner {
+        _burn(user, amount);
+    }
+
     // Casino roll function (user always loses)
     function rollCasino() external returns (string memory) {
-        require(balanceOf(msg.sender) >= 10, "Insufficient tokens to roll casino");
+        require(balanceOf(msg.sender) - reservedTokens[msg.sender] >= 10, "Insufficient tokens to roll casino");
 
         _burn(msg.sender, 10); // Deduct 1000 tokens
         return "You rolled... and lost! Better luck next time!";
@@ -52,7 +87,7 @@ contract AnanasToken is ERC20 {
 
     // Function to exchange 1000 ananas tokens for real life ananas
     function buyAnanas() external {
-        require(balanceOf(msg.sender) >= 1000, "Insufficient tokens to buy an ananas");
+        require(balanceOf(msg.sender) - reservedTokens[msg.sender] >= 1000, "Insufficient tokens to buy an ananas");
 
         _burn(msg.sender, 1000);
         ananasPurchases.push(AnanasPurchase({buyer: msg.sender, fulfilled: false}));
@@ -103,5 +138,56 @@ contract AnanasToken is ERC20 {
         _mint(user, tasks[taskId].reward);
 
         emit TaskCompleted(user, taskId, tasks[taskId].reward);
+    }
+
+    // Owner can register new auction
+    function registerAuction(uint256 id, string memory description, uint256 initialBet, uint256 minimalStep) external onlyOwner {
+        require (auctionStatus[id] == Status.Disabled, "Incorrect transmitted ID");
+
+        auctions[id] = Auction(description, minimalStep, initialBet, address(0), block.timestamp);
+        auctionStatus[id] = Status.Active;
+    }
+
+    // Users can make a bet at the auction
+    function makeAuctionBet(uint256 id, uint256 bet) external {
+        require(auctionStatus[id] == Status.Active, "Incorrect auction ID");
+        require(bet >= auctions[id].lastBet + auctions[id].minimalStep, "Insufficient bet amount");
+        require(balanceOf(msg.sender) - reservedTokens[msg.sender] >= bet, "Insufficient tokens to make a bet in an auction");
+
+        reservedTokens[msg.sender] += bet;
+        if (auctions[id].currentWinner != address(0)) {
+            reservedTokens[auctions[id].currentWinner] -= auctions[id].lastBet;
+        }
+
+        auctions[id].lastBet = bet;
+        auctions[id].currentWinner = msg.sender;
+        auctions[id].lastTimestamp = block.timestamp;
+
+        emit AuctionBet(msg.sender, id, bet);
+    }
+
+    // Owner can finish the auction and get the winner
+    function finalizeAuction(uint256 id) external onlyOwner returns (address) {
+        require(auctionStatus[id] == Status.Active, "Incorrect auction ID");
+        require(block.timestamp >= auctions[id].lastTimestamp + BET_TIMER, "Not enough time has passed since the last bet");
+        require(auctions[id].currentWinner != address(0), "There have benn no bets yet");
+
+        auctionStatus[id] = Status.Closed;
+        _burn(auctions[id].currentWinner, auctions[id].lastBet);
+        reservedTokens[auctions[id].currentWinner] -= auctions[id].lastBet;
+
+        return auctions[id].currentWinner;
+    }
+
+    // Owner can cancel the auction without winner
+    function cancelAuction(uint256 id) external onlyOwner {
+        require(auctionStatus[id] == Status.Active, "Incorrect auction ID");
+
+        auctionStatus[id] = Status.Closed;
+        if (auctions[id].currentWinner != address(0)) {
+            reservedTokens[auctions[id].currentWinner] -= auctions[id].lastBet;
+        }
+
+        emit AuctionClosed(id);
     }
 }
