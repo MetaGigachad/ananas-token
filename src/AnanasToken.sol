@@ -14,7 +14,7 @@ import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/V
 contract AnanasTokenCasino is VRFConsumerBaseV2Plus {
     LinkTokenInterface LINKTOKEN;
     address public link_token_contract = 0x779877A7B0D9E8603169DdbD7836e478b4624789;
-    address public vrfCoordinator = 0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B;
+    address public vrfCoordinator;
     bytes32 public s_keyHash = 0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae; // 500 gwei lane
     uint32 public callbackGasLimit = 100000;
     uint16 public requestConfirmations = 3;
@@ -27,16 +27,17 @@ contract AnanasTokenCasino is VRFConsumerBaseV2Plus {
     mapping(uint256 => address) public requestIdToRoller;
     mapping(uint256 => bool) public rollResults;
 
-    event LudkaStart(uint256 indexed requestId, address indexed roller);
-    event LudkaFabulousEnd(uint256 indexed requestId, bool indexed result);
+    event RollStart(uint256 indexed requestId, address indexed roller);
+    event RollEnd(uint256 indexed requestId, bool indexed result);
 
-    constructor(address _ananasToken) VRFConsumerBaseV2Plus(vrfCoordinator) {
+    constructor(address _ananasToken, address _vrfCoordinator) VRFConsumerBaseV2Plus(_vrfCoordinator) {
         LINKTOKEN = LinkTokenInterface(link_token_contract);
         _createNewSubscription();
         ananasToken = AnanasToken(_ananasToken);
+        vrfCoordinator = _vrfCoordinator;
     }
 
-    function Ludka(address roller) external onlyOwner {
+    function doRoll(address roller) external onlyOwner {
         require(rollStatuses[roller] == 0, "Another roll is in progress");
 
         uint256 requestId = s_vrfCoordinator.requestRandomWords(
@@ -52,7 +53,7 @@ contract AnanasTokenCasino is VRFConsumerBaseV2Plus {
 
         requestIdToRoller[requestId] = roller;
         rollStatuses[roller] = 1;
-        emit LudkaStart(requestId, roller);
+        emit RollStart(requestId, roller);
     }
 
     function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal override {
@@ -61,9 +62,11 @@ contract AnanasTokenCasino is VRFConsumerBaseV2Plus {
         rollResults[requestId] = win;
         rollStatuses[requestIdToRoller[requestId]] = 0;
 
-        ananasToken.mintTokens(requestIdToRoller[requestId], 20);
+        if (win) {
+            ananasToken.mintTokens(requestIdToRoller[requestId], 20);
+        }
 
-        emit LudkaFabulousEnd(requestId, win);
+        emit RollEnd(requestId, win);
     }
 
     // Assumes this contract owns link.
@@ -84,7 +87,7 @@ contract AnanasTokenCasino is VRFConsumerBaseV2Plus {
 
 contract AnanasToken is ERC20 {
     address public owner;
-    AnanasTokenCasino private casino;
+    AnanasTokenCasino public casino;
 
     struct AnanasPurchase {
         address buyer;
@@ -154,14 +157,16 @@ contract AnanasToken is ERC20 {
         _;
     }
 
-    constructor(Task[] memory initialTasks) ERC20("Ananas Token", "ANNS") {
+    constructor(Task[] memory initialTasks, address vrfCoordinator) ERC20("Ananas Token", "ANNS") {
         owner = msg.sender;
 
         // Add initial tasks
         for (uint256 i = 0; i < initialTasks.length; i++) {
             tasks.push(initialTasks[i]);
         }
-        casino = new AnanasTokenCasino(address(this));
+        // vrfCoordinator is 0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B for prod
+        // Can be mock for tests
+        casino = new AnanasTokenCasino(address(this), vrfCoordinator);
     }
 
     // Owner can transfer some tokens to the student (for some kind of activity)
@@ -178,8 +183,8 @@ contract AnanasToken is ERC20 {
     function rollCasino() external {
         require(balanceOf(msg.sender) - reservedTokens[msg.sender] >= 10, "Insufficient tokens to roll casino");
 
-        _burn(msg.sender, 10); // Deduct 1000 tokens
-        casino.Ludka(msg.sender);
+        _burn(msg.sender, 10);
+        casino.doRoll(msg.sender);
     }
 
     // Function to exchange 1000 ananas tokens for real life ananas

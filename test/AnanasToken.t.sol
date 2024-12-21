@@ -1,17 +1,20 @@
 pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
-import {AnanasToken} from "../src/AnanasToken.sol";
+import {AnanasToken, AnanasTokenCasino} from "../src/AnanasToken.sol";
+import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 
 contract AnanasTokenTest is Test {
     AnanasToken public ananasToken;
+    VrfCoordinatorMock public mock;
 
     function setUp() public {
         AnanasToken.Task[] memory initialTasks = new AnanasToken.Task[](3);
         initialTasks[0] = AnanasToken.Task({id: 1, reward: 100});
         initialTasks[1] = AnanasToken.Task({id: 2, reward: 200});
         initialTasks[2] = AnanasToken.Task({id: 3, reward: 3000});
-        ananasToken = new AnanasToken(initialTasks);
+        mock = new VrfCoordinatorMock();
+        ananasToken = new AnanasToken(initialTasks, address(mock));
     }
 
     function test_Basic() public {
@@ -23,9 +26,12 @@ contract AnanasTokenTest is Test {
         assertEq(ananasToken.balanceOf(address(student)), 3000);
 
         // Student can roll casino for 10 ananases (currently just looses them)
-        // TODO: make rolls random probaly using [Chainlink VRF](https://docs.chain.link/vrf)
         student.rollCasino();
-        assertEq(ananasToken.balanceOf(address(student)), 2990);
+        mock.deliverRandom(address(ananasToken.casino()), 1, 1);
+        assertEq(ananasToken.balanceOf(address(student)), 3010);
+        student.rollCasino();
+        mock.deliverRandom(address(ananasToken.casino()), 1, 0);
+        assertEq(ananasToken.balanceOf(address(student)), 3000);
 
         // Student can buy real ananas for 1000 anans tokens
         student.buyAnanas();
@@ -43,8 +49,6 @@ contract AnanasTokenTest is Test {
         ananasToken.markTaskAsCompleted(address(student2), 2);
         student2.transfer(address(student3), 2000);
         assertEq(ananasToken.balanceOf(address(student3)), 2000);
-
-        // TODO: May be some DAO vote or something
     }
 
     function test_Auctions() public {
@@ -127,5 +131,31 @@ contract StudentBot {
 
     function makeVote(uint256 id, uint256 option) external {
         ananasToken.makeVote(id, option);
+    }
+}
+
+contract VrfCoordinatorMock {
+    uint256 private request_id = 0;
+
+    constructor() {
+    }
+
+    function requestRandomWords(VRFV2PlusClient.RandomWordsRequest calldata req) external returns (uint256 requestId) {
+        request_id += 1;
+        return request_id;
+    }
+
+    function createSubscription() public returns (uint256) {
+        return 0;
+    }
+
+    function addConsumer(uint256 a, address b) public {
+    }
+
+    function deliverRandom(address _casino, uint256 requestId, uint256 word) public {
+        AnanasTokenCasino casino = AnanasTokenCasino(_casino);
+        uint256[] memory array = new uint256[](1);
+        array[0] = word;
+        casino.rawFulfillRandomWords(requestId, array);
     }
 }
